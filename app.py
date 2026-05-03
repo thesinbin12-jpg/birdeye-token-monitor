@@ -198,7 +198,8 @@ def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 3) -> Di
     """
     headers = {
         "accept": "application/json",
-        "X-API-KEY": os.environ.get("BIRDEYE_API_KEY", "")
+        "X-API-KEY": os.environ.get("BIRDEYE_API_KEY", ""),
+        "x-chain": "solana"
     }
     url = f"https://public-api.birdeye.so{endpoint}"
 
@@ -279,7 +280,7 @@ def scan_new_tokens():
         }), 503
 
     # Step 1: Get latest 15 new token listings from Birdeye
-    new_listings = get_birdeye_data('/v2/tokens/new_listing', {'limit': 15})
+    new_listings = get_birdeye_data('/defi/v2/tokens/new_listing', {'limit': 15})
 
     if 'data' not in new_listings or not new_listings['data']:
         logger.warning("No new listings found or API returned empty response")
@@ -315,10 +316,10 @@ def scan_new_tokens():
             {"address": address}
         )
 
-        # Step 4: Get token price data
+        # Step 4: Get token price data (with liquidity)
         price_data = get_birdeye_data(
-            '/defi/token_price',
-            {"address": address}
+            '/defi/price',
+            {"address": address, "include_liquidity": "true"}
         )
 
         # Step 5: Calculate safety score and create result
