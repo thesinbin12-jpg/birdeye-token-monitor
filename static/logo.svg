@@ -1,0 +1,14 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="radarGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#10B981"/>
+      <stop offset="100%" stop-color="#14B8A6"/>
+    </linearGradient>
+  </defs>
+  <circle cx="32" cy="32" r="28" stroke="url(#radarGradient)" stroke-width="3" fill="none" opacity="0.3"/>
+  <circle cx="32" cy="32" r="20" stroke="url(#radarGradient)" stroke-width="2.5" fill="none" opacity="0.5"/>
+  <circle cx="32" cy="32" r="12" stroke="url(#radarGradient)" stroke-width="2" fill="none" opacity="0.7"/>
+  <circle cx="32" cy="32" r="5" fill="url(#radarGradient)"/>
+  <path d="M32 4 L32 12 M32 52 L32 60 M4 32 L12 32 M52 32 L60 32" stroke="url(#radarGradient)" stroke-width="2" stroke-linecap="round"/>
+  <path d="M44 20 L52 12" stroke="url(#radarGradient)" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+</svg>
