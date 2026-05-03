@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Scan newly listed Solana tokens for rug pull risk using Birdeye API">
+    <meta name="theme-color" content="#0a0a0f">
+    <title>Birdeye Token Safety Radar</title>
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/style.css">
+
+    <!-- Favicon -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%238b5cf6' rx='20' width='100' height='100'/><text y='.9em' x='50%' text-anchor='middle' font-size='70'>🔍</text></svg>">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-content">
+            <div class="logo-section">
+                <div class="logo-icon">🔍</div>
+                <div class="logo-text">
+                    <h1>Token Safety Radar</h1>
+                    <p>Powered by Birdeye API • Solana</p>
+                </div>
+            </div>
+
+            <div class="api-counter">
+                <div>
+                    <div class="api-counter-label">API Calls</div>
+                    <div class="api-counter-value" id="apiCounterValue">0</div>
+                </div>
+                <span style="color: var(--text-muted);">|</span>
+                <div>
+                    <div class="api-counter-label">Status</div>
+                    <div style="color: var(--safe); font-size: 0.9rem;">Active</div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main">
+        <!-- Action Bar -->
+        <div class="action-bar">
+            <button id="scanBtn" class="scan-btn">
+                <span class="icon">🔍</span>
+                Scan Latest 15 Tokens
+            </button>
+        </div>
+
+        <!-- Error Message -->
+        <div class="error-message">
+            Unable to scan tokens. Please check your API key and try again.
+        </div>
+
+        <!-- Loading State -->
+        <div class="loading-container">
+            <div class="spinner"></div>
+            <p class="loading-text">Scanning via Birdeye API...</p>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Fetching latest Solana tokens and analyzing risk factors</p>
+        </div>
+
+        <!-- Results -->
+        <div class="results-container">
+            <div class="results-header">
+                <h2 class="results-title">Scan Results</h2>
+                <span class="results-count" id="resultsCount">0 tokens scanned</span>
+            </div>
+            <div class="tokens-grid" id="tokensGrid">
+                <!-- Token cards will be injected here -->
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <p>
+            Built for <a href="https://birdeye.so" target="_blank" rel="noopener">Birdeye Data</a> BIP Competition Sprint 3
+            • 50+ API calls verified per scan
+        </p>
+        <p style="margin-top: 0.5rem; font-size: 0.8rem;">
+            Scores based on: Mint Authority, Freeze Authority, Liquidity, Holder Concentration, Contract Age
+        </p>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/static/app.js"></script>
+</body>
+</html>
