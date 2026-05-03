@@ -206,6 +206,49 @@ def health():
     })
 
 
+@app.route('/api/debug/birdeye')
+def debug_birdeye():
+    try:
+        api_key = os.environ.get("BIRDEYE_API_KEY", "")
+        if not api_key or api_key == "your_api_key_here":
+            return jsonify({"error": "no key"})
+
+        resp1 = get_birdeye_data('/defi/v2/tokens/new_listing', {'limit': 5})
+        resp2 = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'limit': 5})
+
+        return jsonify({
+            "new_listing_type": str(type(resp1.get('data', 'NO_DATA'))),
+            "new_listing_keys": list(resp1.get('data', {}).keys()) if isinstance(resp1.get('data'), dict) else 'NOT_DICT',
+            "new_listing_sample": str(resp1)[:500],
+            "trending_type": str(type(resp2.get('data', 'NO_DATA'))),
+            "trending_keys": list(resp2.get('data', {}).keys()) if isinstance(resp2.get('data'), dict) else 'NOT_DICT',
+            "trending_sample": str(resp2)[:500]
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
+
+def extract_token_list(api_response: Dict) -> List[Dict]:
+    """Extract token list from Birdeye API response - handles multiple response formats."""
+    if not api_response or 'data' not in api_response:
+        return []
+
+    data = api_response['data']
+
+    if isinstance(data, list):
+        return data
+
+    if isinstance(data, dict):
+        for key in ('items', 'tokens', 'data', 'list', 'results'):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+
+        if 'address' in data:
+            return [data]
+
+    return []
+
+
 @app.route('/api/scan-new-tokens', methods=['POST', 'GET'])
 def scan_new_tokens():
     try:
@@ -223,22 +266,19 @@ def scan_new_tokens():
         new_listings = get_birdeye_data('/defi/v2/tokens/new_listing', {'limit': 15})
         logger.info(f"New listings response keys: {list(new_listings.keys()) if new_listings else 'EMPTY'}")
 
-        tokens_list = []
-        if new_listings and 'data' in new_listings:
-            tokens_list = new_listings['data'] or []
+        tokens_list = extract_token_list(new_listings)
 
         if not tokens_list:
             logger.warning("No new listings. Trying trending as fallback.")
             trending = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'limit': 15})
-            if trending and 'data' in trending:
-                tokens_list = trending['data'] or []
+            tokens_list = extract_token_list(trending)
 
-            if not tokens_list:
-                return jsonify({
-                    "error": "No tokens found from Birdeye API. Try again later.",
-                    "tokens": [],
-                    "total_api_calls": api_call_counter
-                })
+        if not tokens_list:
+            return jsonify({
+                "error": "No tokens found from Birdeye API. Try again later.",
+                "tokens": [],
+                "total_api_calls": api_call_counter
+            })
 
         raw_tokens = tokens_list[:15]
         logger.info(f"Found {len(raw_tokens)} tokens to analyze")
