@@ -3,95 +3,131 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="description" content="Scan newly listed Solana tokens for rug pull risk using Birdeye API">
-    <meta name="theme-color" content="#0a0a0f">
+    <meta name="description" content="Real-time Solana token risk scanner powered by Birdeye API">
+    <meta name="theme-color" content="#0B0E14">
+    <meta property="og:title" content="Birdeye Token Safety Radar">
+    <meta property="og:description" content="Scan newly listed Solana tokens for rug pull risk">
+    <meta property="og:type" content="website">
     <title>Birdeye Token Safety Radar</title>
 
-    <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-
-    <!-- Styles -->
+    <link href="https://fonts.googleapis.com/css2?family=Exo+2:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
-
-    <!-- Favicon -->
     <link rel="icon" href="/static/logo.svg" type="image/svg+xml">
 </head>
 <body>
-    <!-- Header -->
+    <div class="bg-grid"></div>
+    <div class="bg-glow"></div>
+
     <header class="header">
-        <div class="header-content">
-            <div class="logo-section">
-                <div class="logo-container">
-                    <img src="/static/logo.svg" alt="Birdeye Token Radar" class="logo">
-                    <div class="logo-text">
-                        <h1>Birdeye Token Safety Radar</h1>
-                        <p>Powered by Birdeye API • Solana</p>
-                    </div>
+        <div class="header-inner">
+            <div class="logo-group">
+                <div class="logo-icon">
+                    <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+                        <defs>
+                            <linearGradient id="logoGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                                <stop offset="0%" stop-color="#10B981"/>
+                                <stop offset="100%" stop-color="#14B8A6"/>
+                            </linearGradient>
+                        </defs>
+                        <circle cx="32" cy="32" r="28" stroke="url(#logoGrad)" stroke-width="3" fill="none" opacity="0.3"/>
+                        <circle cx="32" cy="32" r="20" stroke="url(#logoGrad)" stroke-width="2.5" fill="none" opacity="0.5"/>
+                        <circle cx="32" cy="32" r="12" stroke="url(#logoGrad)" stroke-width="2" fill="none" opacity="0.7"/>
+                        <circle cx="32" cy="32" r="5" fill="url(#logoGrad)"/>
+                        <path d="M32 4 L32 12 M32 52 L32 60 M4 32 L12 32 M52 32 L60 32" stroke="url(#logoGrad)" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M44 20 L52 12" stroke="url(#logoGrad)" stroke-width="2" stroke-linecap="round" opacity="0.8"/>
+                    </svg>
+                </div>
+                <div class="logo-text">
+                    <h1 class="gradient-text">Token Safety Radar</h1>
+                    <p class="subtitle">Real-time Solana Risk Analysis</p>
                 </div>
             </div>
 
-            <div class="api-counter">
-                <div>
-                    <div class="api-counter-label">API Calls</div>
-                    <div class="api-counter-value" id="apiCounterValue">0</div>
+            <div class="header-stats">
+                <div class="stat-box">
+                    <span class="stat-label">API Calls</span>
+                    <span class="stat-value" id="apiCounterValue">0</span>
                 </div>
-                <span style="color: var(--text-muted);">|</span>
-                <div>
-                    <div class="api-counter-label">Status</div>
-                    <div style="color: var(--safe); font-size: 0.9rem;">Active</div>
+                <div class="stat-box status-box">
+                    <span class="stat-label">Status</span>
+                    <div class="status-indicator">
+                        <span class="status-dot"></span>
+                        <span class="status-text">Active</span>
+                    </div>
                 </div>
             </div>
         </div>
     </header>
 
-    <!-- Main Content -->
     <main class="main">
-        <!-- Action Bar -->
-        <div class="action-bar">
-            <button id="scanBtn" class="scan-btn">
-                <span class="icon">🔍</span>
-                Scan Latest 15 Tokens
-            </button>
-        </div>
+        <section class="hero">
+            <div class="hero-content">
+                <h2 class="hero-title">Analyze Token Risk</h2>
+                <p class="hero-subtitle">Scan the latest Solana listings through advanced safety metrics</p>
 
-        <!-- Error Message -->
-        <div class="error-message">
-            Unable to scan tokens. Please check your API key and try again.
-        </div>
+                <button id="scanBtn" class="scan-button">
+                    <span class="scan-button-content">
+                        <svg class="scan-icon" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+                            <circle cx="12" cy="12" r="6" stroke="currentColor" stroke-width="2" opacity="0.5"/>
+                            <circle cx="12" cy="12" r="2" fill="currentColor"/>
+                            <path d="M12 2 L12 6 M12 18 L12 22 M2 12 L6 12 M18 12 L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                        </svg>
+                        <span class="scan-text">Scan Latest 15 Tokens</span>
+                    </span>
+                    <span class="scan-button-loading">
+                        <svg class="spinner-icon" width="24" height="24" viewBox="0 0 24 24">
+                            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2" fill="none" stroke-dasharray="60" stroke-dashoffset="20"/>
+                        </svg>
+                        <span>Scanning...</span>
+                    </span>
+                </button>
 
-        <!-- Loading State -->
-        <div class="loading-container">
-            <div class="spinner"></div>
-            <p class="loading-text">Scanning via Birdeye API...</p>
-            <p style="color: var(--text-muted); font-size: 0.85rem;">Fetching latest Solana tokens and analyzing risk factors</p>
-        </div>
+                <p class="scan-hint">Powered by Birdeye API • 50+ calls per scan</p>
+            </div>
 
-        <!-- Results -->
-        <div class="results-container">
+            <div class="hero-decoration">
+                <div class="radar-sweep"></div>
+            </div>
+        </section>
+
+        <section class="results-section" id="resultsSection">
             <div class="results-header">
-                <h2 class="results-title">Scan Results</h2>
-                <span class="results-count" id="resultsCount">0 tokens scanned</span>
+                <h3 class="results-title">Scan Results</h3>
+                <span class="results-count" id="resultsCount">0 tokens analyzed</span>
             </div>
+
             <div class="tokens-grid" id="tokensGrid">
-                <!-- Token cards will be injected here -->
+                <div class="empty-state" id="emptyState">
+                    <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+                        <circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="2" opacity="0.2"/>
+                        <circle cx="32" cy="32" r="20" stroke="currentColor" stroke-width="2" opacity="0.3"/>
+                        <circle cx="32" cy="32" r="12" stroke="currentColor" stroke-width="2" opacity="0.4"/>
+                        <path d="M20 32 L28 40 L44 24" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" opacity="0.5"/>
+                    </svg>
+                    <p class="empty-text">Click scan to analyze tokens</p>
+                    <p class="empty-subtext">We'll check mint authority, liquidity, holder concentration, and more</p>
+                </div>
             </div>
-        </div>
+        </section>
     </main>
 
-    <!-- Footer -->
+    <div class="toast-container" id="toastContainer"></div>
+
     <footer class="footer">
-        <p>
-            Built for <a href="https://birdeye.so" target="_blank" rel="noopener">Birdeye Data</a> BIP Competition Sprint 3
-            • 50+ API calls verified per scan
-        </p>
-        <p style="margin-top: 0.5rem; font-size: 0.8rem;">
-            Scores based on: Mint Authority, Freeze Authority, Liquidity, Holder Concentration, Contract Age
-        </p>
+        <div class="footer-content">
+            <p class="footer-text">
+                Built for <a href="https://birdeye.so" target="_blank" rel="noopener">Birdeye Data</a> BIP Competition Sprint 3
+            </p>
+            <div class="footer-badges">
+                <span class="badge">50+ API Calls</span>
+                <span class="badge">Vercel Ready</span>
+            </div>
+        </div>
     </footer>
 
-    <!-- Scripts -->
     <script src="/static/app.js"></script>
 </body>
 </html>
