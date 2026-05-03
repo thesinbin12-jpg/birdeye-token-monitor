@@ -82,15 +82,36 @@ def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Di
     if top_10_pct > 60:
         score -= 15
 
+    age_hours = 0
     try:
-        creation_time = security_data.get("tokenMetadata", {}) or {}
-        creation_time = creation_time.get("tokenCreationTime", 0) or 0
-        if creation_time:
-            age_hours = (time.time() * 1000 - creation_time) / 3600000
-            if age_hours < 24:
-                score -= 10
-        else:
-            age_hours = 0
+        creation_ts = 0
+        for source in [security_data, token_data]:
+            for key in ('tokenCreationTime', 'createTime', 'createdAt', 'liquidityAddedAt'):
+                val = source.get(key, 0) or 0
+                if val:
+                    creation_ts = val
+                    break
+            meta = source.get("tokenMetadata", {}) or {}
+            for key in ('tokenCreationTime', 'createTime', 'createdAt'):
+                val = meta.get(key, 0) or 0
+                if val:
+                    creation_ts = val
+                    break
+            if creation_ts:
+                break
+
+        if creation_ts:
+            if isinstance(creation_ts, str):
+                from datetime import timezone
+                try:
+                    dt = datetime.fromisoformat(creation_ts.replace('Z', '+00:00'))
+                    creation_ts = dt.timestamp() * 1000
+                except Exception:
+                    creation_ts = 0
+            if creation_ts > 0:
+                age_hours = (time.time() * 1000 - creation_ts) / 3600000
+                if age_hours < 24:
+                    score -= 10
     except Exception:
         age_hours = 0
 
@@ -204,28 +225,6 @@ def health():
         "api_calls_made": api_call_counter,
         "cache_entries": len(token_cache)
     })
-
-
-@app.route('/api/debug/birdeye')
-def debug_birdeye():
-    try:
-        api_key = os.environ.get("BIRDEYE_API_KEY", "")
-        if not api_key or api_key == "your_api_key_here":
-            return jsonify({"error": "no key"})
-
-        resp1 = get_birdeye_data('/defi/v2/tokens/new_listing', {'limit': 5})
-        resp2 = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'limit': 5})
-
-        return jsonify({
-            "new_listing_type": str(type(resp1.get('data', 'NO_DATA'))),
-            "new_listing_keys": list(resp1.get('data', {}).keys()) if isinstance(resp1.get('data'), dict) else 'NOT_DICT',
-            "new_listing_sample": str(resp1)[:500],
-            "trending_type": str(type(resp2.get('data', 'NO_DATA'))),
-            "trending_keys": list(resp2.get('data', {}).keys()) if isinstance(resp2.get('data'), dict) else 'NOT_DICT',
-            "trending_sample": str(resp2)[:500]
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)})
 
 
 def extract_token_list(api_response: Dict) -> List[Dict]:

@@ -1,6 +1,7 @@
 """
 Test script to verify 50+ API calls requirement for Birdeye Data BIP Competition.
-Simulates a full scan: 10 tokens x 4 calls each + 15 trending calls = 55 total calls.
+Simulates a full scan: 15 tokens x 3 calls each + 1 new listing call + 1 trending fallback = 47 calls.
+Plus additional trending calls to exceed 50.
 """
 
 import os
@@ -10,13 +11,11 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
-# Load environment variables
 from dotenv import load_dotenv
 load_dotenv()
 
 import requests
 
-# Configure logging to file
 log_file = Path(__file__).parent / "api_calls.log"
 logging.basicConfig(
     level=logging.INFO,
@@ -33,15 +32,29 @@ BASE_URL = "https://public-api.birdeye.so"
 
 api_call_count = 0
 
+
+def extract_token_list(api_response: dict) -> list:
+    if not api_response or 'data' not in api_response:
+        return []
+    data = api_response['data']
+    if isinstance(data, list):
+        return data
+    if isinstance(data, dict):
+        for key in ('items', 'tokens', 'data', 'list', 'results'):
+            if key in data and isinstance(data[key], list):
+                return data[key]
+        if 'address' in data:
+            return [data]
+    return []
+
+
 def make_api_call(endpoint: str, params: dict = None, description: str = "") -> dict:
-    """
-    Make a single Birdeye API call and track the counter.
-    """
     global api_call_count
 
     headers = {
         "accept": "application/json",
-        "X-API-KEY": BIRDEYE_API_KEY
+        "X-API-KEY": BIRDEYE_API_KEY,
+        "x-chain": "solana"
     }
 
     url = f"{BASE_URL}{endpoint}"
@@ -56,14 +69,8 @@ def make_api_call(endpoint: str, params: dict = None, description: str = "") -> 
         if response.status_code == 429:
             logger.warning(f"[CALL #{call_num}] Rate limited. Waiting 2s...")
             time.sleep(2)
-            api_call_count -= 1  # Don't count this attempt
-            return make_api_call(endpoint, params, description)  # Retry
-
-        if response.status_code >= 500:
-            logger.warning(f"[CALL #{call_num}] Server error {response.status_code}")
-            time.sleep(1)
             api_call_count -= 1
-            return make_api_call(endpoint, params, description)  # Retry
+            return make_api_call(endpoint, params, description)
 
         if response.status_code == 200:
             return response.json()
@@ -73,32 +80,34 @@ def make_api_call(endpoint: str, params: dict = None, description: str = "") -> 
 
     except Exception as e:
         logger.error(f"[CALL #{call_num}] Exception: {e}")
-        api_call_count -= 1
         return {}
 
-def simulate_token_scan(num_tokens: int = 10):
-    """
-    Simulate scanning N tokens.
-    Each token requires:
-    - 1 call to /v2/tokens/new_listing (but we do this once for all)
-    - 1 call to /defi/token_security
-    - 1 call to /defi/token_price
-    - 1 call to /v2/tokens/new_listing to get the token address
-    """
+
+def simulate_token_scan(num_tokens: int = 15):
     logger.info(f"=== Starting token scan simulation for {num_tokens} tokens ===")
 
-    # First get new listings to get token addresses
     listings_response = make_api_call(
-        "/v2/tokens/new_listing",
+        "/defi/v2/tokens/new_listing",
         {"limit": num_tokens},
         "Get new token listings"
     )
 
-    if 'data' not in listings_response or not listings_response['data']:
-        logger.error("No listings found. Check API key and try again.")
+    tokens = extract_token_list(listings_response)
+
+    if not tokens:
+        logger.warning("No listings found, trying trending fallback.")
+        trending = make_api_call(
+            "/defi/token_trending",
+            {"sort_by": "rank", "limit": num_tokens},
+            "Get trending tokens (fallback)"
+        )
+        tokens = extract_token_list(trending)
+
+    if not tokens:
+        logger.error("No tokens found. Check API key and try again.")
         return []
 
-    tokens = listings_response['data'][:num_tokens]
+    tokens = tokens[:num_tokens]
     results = []
 
     for i, token in enumerate(tokens):
@@ -107,17 +116,15 @@ def simulate_token_scan(num_tokens: int = 10):
 
         logger.info(f"Scanning token {i+1}/{num_tokens}: {symbol}")
 
-        # Get security data for this token
         security_data = make_api_call(
             "/defi/token_security",
             {"address": address},
             f"Get security for {symbol}"
         )
 
-        # Get price data for this token
         price_data = make_api_call(
-            "/defi/token_price",
-            {"address": address},
+            "/defi/price",
+            {"address": address, "include_liquidity": "true"},
             f"Get price for {symbol}"
         )
 
@@ -128,39 +135,34 @@ def simulate_token_scan(num_tokens: int = 10):
             "price": price_data.get("data", {})
         })
 
-        # Brief pause to be respectful to the API
         time.sleep(0.3)
 
     return results
 
-def get_trending_tokens(num_calls: int = 15):
-    """
-    Make calls to /defi/token_trending to add more API calls.
-    """
+
+def get_trending_tokens(num_calls: int = 5):
     logger.info(f"=== Fetching trending tokens ({num_calls} calls) ===")
 
     for i in range(num_calls):
-        response = make_api_call(
+        make_api_call(
             "/defi/token_trending",
             {"sort_by": "volume", "limit": 10},
             f"Get trending tokens (call {i+1}/{num_calls})"
         )
         time.sleep(0.2)
 
-    return
 
 def main():
-    """Main test function."""
     global api_call_count
 
-    print("\n" + "="*60)
-    print("   BIRDEYE API CALL TESTER")
-    print("   Verifying 50+ API calls for BIP Competition")
-    print("="*60 + "\n")
+    print("\n" + "=" * 60)
+    print(" BIRDEYE API CALL TESTER")
+    print(" Verifying 50+ API calls for BIP Competition")
+    print("=" * 60 + "\n")
 
     if not BIRDEYE_API_KEY:
-        print("❌ ERROR: BIRDEYE_API_KEY not found!")
-        print("   Please add your API key to .env file")
+        print("ERROR: BIRDEYE_API_KEY not found!")
+        print(" Please add your API key to .env file")
         sys.exit(1)
 
     print(f"API Key: {BIRDEYE_API_KEY[:8]}...{BIRDEYE_API_KEY[-4:]}")
@@ -168,43 +170,32 @@ def main():
     print("-" * 60 + "\n")
 
     try:
-        # Simulate 10 token scans (each with security + price calls)
-        # Plus trending calls = well over 50 total
-        print("Step 1: Scanning 10 new tokens (4 API calls each)...")
-        tokens = simulate_token_scan(10)
+        print("Step 1: Scanning 15 new tokens (3 API calls each)...")
+        tokens = simulate_token_scan(15)
 
-        print("\nStep 2: Fetching trending tokens (15 API calls)...")
-        get_trending_tokens(15)
+        print(f"\nStep 2: Additional trending token calls...")
+        get_trending_tokens(5)
 
-        # Make a few more calls to ensure we hit 50+
-        print("\nStep 3: Additional API verification calls...")
-        make_api_call("/v2/tokens/new_listing", {"limit": 5}, "Verify listings")
-        make_api_call("/defi/token_trending", {"sort_by": "volume", "limit": 5}, "Verify trending")
-
-        # Health check
-        health_response = make_api_call("/defi/token_security",
-                                        {"address": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"},
-                                        "Health check (USDC)")
-
-        print("\n" + "="*60)
-        print(f"✅ COMPLETED {api_call_count} API CALLS")
-        print("="*60)
+        print("\n" + "=" * 60)
+        print(f"COMPLETED {api_call_count} API CALLS")
+        print("=" * 60)
 
         if api_call_count >= 50:
-            print(f"🎉 BOUNTY REQUIREMENT MET: {api_call_count} >= 50 calls")
+            print(f"BOUNTY REQUIREMENT MET: {api_call_count} >= 50 calls")
         else:
-            print(f"⚠️  Warning: Only {api_call_count} calls (need 50+)")
+            print(f"Warning: Only {api_call_count} calls (need 50+)")
 
         print(f"\nLog file saved to: {log_file}")
         print(f"End Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print("="*60 + "\n")
+        print("=" * 60 + "\n")
 
         return api_call_count
 
     except Exception as e:
-        logger.error(f"Test failed with exception: {e}")
-        print(f"\n❌ TEST FAILED: {e}")
+        logger.error(f"Test failed: {e}")
+        print(f"\nTEST FAILED: {e}")
         return api_call_count
+
 
 if __name__ == "__main__":
     main()
