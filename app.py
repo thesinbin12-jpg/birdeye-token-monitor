@@ -268,6 +268,16 @@ def scan_new_tokens():
     """
     logger.info("=== Starting token scan ===")
 
+    # Check if API key is configured
+    api_key = os.environ.get("BIRDEYE_API_KEY", "")
+    if not api_key or api_key == "your_api_key_here":
+        logger.error("BIRDEYE_API_KEY not configured")
+        return jsonify({
+            "error": "API key not configured",
+            "message": "Please set BIRDEYE_API_KEY in Vercel project settings",
+            "tokens": []
+        }), 503
+
     # Step 1: Get latest 15 new token listings from Birdeye
     new_listings = get_birdeye_data('/v2/tokens/new_listing', {'limit': 15})
 
