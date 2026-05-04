@@ -1,5 +1,6 @@
 import os
 import sys
+import re
 import logging
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -65,11 +66,17 @@ def scan_new_tokens():
 @app.route('/api/analyze-token/<path:address>', methods=['GET'])
 def analyze_single_token(address):
     try:
-        if not address or len(address) < 32:
-            return jsonify({
-                "error": "Invalid token address. Must be 32+ characters.",
-                "tokens": [],
-            }), 400
+    if not address or len(address) < 32 or len(address) > 44:
+        return jsonify({
+            "error": "Invalid token address. Must be 32-44 characters.",
+            "tokens": [],
+        }), 400
+
+    if not re.match(r'^[1-9A-HJ-NP-Za-km-z]+$', address):
+        return jsonify({
+            "error": "Invalid token address. Contains invalid characters.",
+            "tokens": [],
+        }), 400
 
         scan_start = analyzer.get_api_counter()
         result = analyzer.analyze_single_token(address)

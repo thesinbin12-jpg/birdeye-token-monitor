@@ -276,13 +276,13 @@ logoHtml +
 '<div class="token-info-text">' +
 '<h4 class="token-name" title="' + escHtml(token.name || 'Unknown') + '">' + escHtml(token.name || 'Unknown') + '</h4>' +
 '<span class="token-symbol">' + escHtml(token.symbol || '???') + '</span>' +
-'<span class="token-address" title="Click to copy" onclick="navigator.clipboard.writeText(\'' + token.address + '\')">' + fmtAddr(token.address) + '</span>' +
+'<span class="token-address" title="Click to copy" data-address="' + escHtml(token.address) + '">' + fmtAddr(token.address) + '</span>' +
 '</div>' +
 '</div>' +
 '<div class="verdict-badge ' + vClass + '">' + verdictIcon(verdict) + '<span>' + verdict + '</span></div>' +
 '</div>' +
 '<div class="recommendation-bar ' + recClass + '">' +
-'<span>' + rec.label + ':</span> <span>' + rec.text + '</span>' +
+'<span>' + escHtml(rec.label) + ':</span> <span>' + escHtml(rec.text) + '</span>' +
 '</div>' +
 '<div class="score-section">' +
 '<div class="score-circle">' +
@@ -534,6 +534,13 @@ if (data.api_calls_made !== undefined) els.apiCounter.textContent = data.api_cal
 console.warn('Health check failed:', e);
 }
 }
+
+document.addEventListener('click', function(e) {
+if (e.target.classList && e.target.classList.contains('token-address')) {
+var addr = e.target.getAttribute('data-address');
+if (addr) navigator.clipboard.writeText(addr);
+}
+});
 
 els.scanBtn.addEventListener('click', scanTokens);
 els.searchBtn.addEventListener('click', searchToken);

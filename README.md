@@ -195,4 +195,11 @@ Based on price change over 24h with diminishing returns for extreme moves.
 
 ## License
 
-MIT
+Apache License 2.0 — See [LICENSE](LICENSE) for details.
+
+You may use, modify, and distribute this software provided you:
+- Include the original copyright notice
+- State significant changes made
+- Include the LICENSE file in distributions
+
+This license includes patent grant protections. No warranty is provided.
