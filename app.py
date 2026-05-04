@@ -47,7 +47,7 @@ def set_cached(address: str, data: Dict[str, Any]) -> None:
         token_cache[address] = {"data": data, "timestamp": time.time()}
 
 
-def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Dict, api_calls: int) -> Dict[str, Any]:
+def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Dict, overview_data: Dict, api_calls: int) -> Dict[str, Any]:
     """
     Safety scoring: start at 100
     -30 mint authority not revoked
@@ -127,6 +127,7 @@ def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Di
     name = token_data.get("name", "Unknown")
     symbol = token_data.get("symbol", "???")
     address = token_data.get("address", "")
+    logo_uri = token_data.get("logoURI", "") or overview_data.get("logoURI", "") or ""
 
     price = float(price_data.get("value", 0) or 0)
     if price > 0:
@@ -146,10 +147,23 @@ def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Di
     else:
         liq_fmt = f"${liquidity:.2f}"
 
+    fdv = float(overview_data.get("fdv", 0) or 0) or float(token_data.get("fdv", 0) or 0)
+    if fdv >= 1e9:
+        fdv_fmt = f"${fdv/1e9:.2f}B"
+    elif fdv >= 1e6:
+        fdv_fmt = f"${fdv/1e6:.2f}M"
+    elif fdv >= 1e3:
+        fdv_fmt = f"${fdv/1e3:.2f}K"
+    elif fdv > 0:
+        fdv_fmt = f"${fdv:.2f}"
+    else:
+        fdv_fmt = "N/A"
+
     return {
         "address": address,
         "name": name,
         "symbol": symbol,
+        "logo_uri": logo_uri,
         "score": score,
         "verdict": verdict,
         "mint_authority_revoked": mint_revoked,
@@ -160,6 +174,8 @@ def calculate_safety_score(token_data: Dict, security_data: Dict, price_data: Di
         "contract_age_hours": round(age_hours, 1),
         "price": price,
         "price_formatted": price_fmt,
+        "fdv": fdv,
+        "fdv_formatted": fdv_fmt,
         "api_calls_used": api_calls
     }
 
@@ -296,41 +312,26 @@ def scan_new_tokens():
                 results.append(cached)
                 continue
 
-            security_data = get_birdeye_data('/defi/token_security', {"address": address})
-            price_data = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
+        security_data = get_birdeye_data('/defi/token_security', {"address": address})
+        price_data = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
+        overview_data = get_birdeye_data('/defi/token_overview', {"address": address})
 
-            try:
-                sec = security_data.get("data", {}) if security_data else {}
-                pri = price_data.get("data", {}) if price_data else {}
+        try:
+            sec = security_data.get("data", {}) if security_data else {}
+            pri = price_data.get("data", {}) if price_data else {}
+            ovr = overview_data.get("data", {}) if overview_data else {}
 
-                if sec or pri:
-                    result = calculate_safety_score(token, sec, pri, api_call_counter)
-                    set_cached(address, result)
-                    results.append(result)
-                    logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']})")
-                else:
-                    results.append({
-                        "address": address,
-                        "name": token.get("name", "Unknown"),
-                        "symbol": token.get("symbol", "???"),
-                        "score": 0,
-                        "verdict": "UNKNOWN",
-                        "mint_authority_revoked": False,
-                        "freeze_authority_revoked": False,
-                        "liquidity": 0,
-                        "liquidity_formatted": "N/A",
-                        "top_10_holders_pct": 0,
-                        "contract_age_hours": 0,
-                        "price": 0,
-                        "price_formatted": "N/A",
-                        "api_calls_used": api_call_counter
-                    })
-            except Exception as e:
-                logger.error(f"Error processing {address}: {e}")
+            if sec or pri:
+                result = calculate_safety_score(token, sec, pri, ovr, api_call_counter)
+                set_cached(address, result)
+                results.append(result)
+                logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']})")
+            else:
                 results.append({
                     "address": address,
-                    "name": token.get("name", "Error"),
+                    "name": token.get("name", "Unknown"),
                     "symbol": token.get("symbol", "???"),
+                    "logo_uri": token.get("logoURI", ""),
                     "score": 0,
                     "verdict": "UNKNOWN",
                     "mint_authority_revoked": False,
@@ -341,8 +342,31 @@ def scan_new_tokens():
                     "contract_age_hours": 0,
                     "price": 0,
                     "price_formatted": "N/A",
+                    "fdv": 0,
+                    "fdv_formatted": "N/A",
                     "api_calls_used": api_call_counter
                 })
+            except Exception as e:
+                logger.error(f"Error processing {address}: {e}")
+            results.append({
+                "address": address,
+                "name": token.get("name", "Error"),
+                "symbol": token.get("symbol", "???"),
+                "logo_uri": token.get("logoURI", ""),
+                "score": 0,
+                "verdict": "UNKNOWN",
+                "mint_authority_revoked": False,
+                "freeze_authority_revoked": False,
+                "liquidity": 0,
+                "liquidity_formatted": "N/A",
+                "top_10_holders_pct": 0,
+                "contract_age_hours": 0,
+                "price": 0,
+                "price_formatted": "N/A",
+                "fdv": 0,
+                "fdv_formatted": "N/A",
+                "api_calls_used": api_call_counter
+            })
 
         logger.info(f"=== Scan complete. Total API calls: {api_call_counter} ===")
 
