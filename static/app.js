@@ -145,17 +145,38 @@ var url = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(text);
 window.open(url, '_blank');
 };
 
-function buildAISection(token) {
-if (!token.ai_insight) return '';
-var src = token.ai_source || 'rules';
-var badgeClass = src === 'groq' ? 'groq' : (src === 'unavailable' ? 'unavailable' : 'rules');
-var badgeText = src === 'groq' ? 'AI' : (src === 'unavailable' ? 'N/A' : 'RULES');
-var html = '<div class="card-section">';
-html += '<div class="card-section-title"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17a2 2 0 01-2 2h-4a2 2 0 01-2-2v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z"/><path d="M9 21h6"/></svg>AI Insight <span class="ai-badge ' + badgeClass + '">' + badgeText + '</span></div>';
-html += '<div class="ai-insight">' + escHtml(token.ai_insight) + '</div>';
-html += '</div>';
-return html;
-}
+  function buildAISection(token) {
+    var src = token.ai_source || 'rules';
+    var insight = token.ai_insight || '';
+    var available = token.ai_available !== false;
+    var badgeClass, badgeText;
+
+    if (!insight && !available) {
+      insight = 'AI insights unavailable';
+      badgeClass = 'unavailable';
+      badgeText = 'N/A';
+    } else if (!insight) {
+      insight = 'AI analysis pending...';
+      badgeClass = 'rules';
+      badgeText = 'RULES';
+    } else if (src === 'groq') {
+      badgeClass = 'groq';
+      badgeText = 'AI';
+    } else if (src === 'unavailable') {
+      badgeClass = 'unavailable';
+      badgeText = 'N/A';
+    } else {
+      badgeClass = 'rules';
+      badgeText = 'RULES';
+    }
+
+    var sectionClass = !available ? 'ai-section ai-section-unavailable' : 'ai-section';
+    var html = '<div class="' + sectionClass + '">';
+    html += '<div class="ai-section-header"><span class="ai-robot-icon">&#x1F916;</span><span class="ai-section-title">AI Insight</span><span class="ai-badge ' + badgeClass + '">' + badgeText + '</span></div>';
+    html += '<div class="ai-insight-text">' + escHtml(insight) + '</div>';
+    html += '</div>';
+    return html;
+  }
 
 function buildSimSection(token) {
 var sim = token.simulation;
@@ -264,27 +285,28 @@ catHtml += '<div class="category-score">' +
 '</div>';
 }
 
-var aiHtml = buildAISection(token);
-var simHtml = buildSimSection(token);
-var patHtml = buildPatternsSection(token);
-var compHtml = buildComparativeSection(token);
+  var aiHtml = buildAISection(token);
+  var simHtml = buildSimSection(token);
+  var patHtml = buildPatternsSection(token);
+  var compHtml = buildComparativeSection(token);
 
-return '<article class="token-card" data-address="' + token.address + '" data-verdict="' + verdict + '" data-score="' + score + '" data-liq="' + (token.liquidity || 0) + '" data-holders="' + (token.top_10_holders_pct || 0) + '" data-age="' + (token.contract_age_hours || 0) + '">' +
-'<div class="card-header">' +
-'<div class="token-info">' +
-logoHtml +
-'<div class="token-info-text">' +
-'<h4 class="token-name" title="' + escHtml(token.name || 'Unknown') + '">' + escHtml(token.name || 'Unknown') + '</h4>' +
-'<span class="token-symbol">' + escHtml(token.symbol || '???') + '</span>' +
-'<span class="token-address" title="Click to copy" data-address="' + escHtml(token.address) + '">' + fmtAddr(token.address) + '</span>' +
-'</div>' +
-'</div>' +
-'<div class="verdict-badge ' + vClass + '">' + verdictIcon(verdict) + '<span>' + verdict + '</span></div>' +
-'</div>' +
-'<div class="recommendation-bar ' + recClass + '">' +
-'<span>' + escHtml(rec.label) + ':</span> <span>' + escHtml(rec.text) + '</span>' +
-'</div>' +
-'<div class="score-section">' +
+  return '<article class="token-card" data-address="' + token.address + '" data-verdict="' + verdict + '" data-score="' + score + '" data-liq="' + (token.liquidity || 0) + '" data-holders="' + (token.top_10_holders_pct || 0) + '" data-age="' + (token.contract_age_hours || 0) + '">' +
+  '<div class="card-header">' +
+  '<div class="token-info">' +
+  logoHtml +
+  '<div class="token-info-text">' +
+  '<h4 class="token-name" title="' + escHtml(token.name || 'Unknown') + '">' + escHtml(token.name || 'Unknown') + '</h4>' +
+  '<span class="token-symbol">' + escHtml(token.symbol || '???') + '</span>' +
+  '<span class="token-address" title="Click to copy" data-address="' + escHtml(token.address) + '">' + fmtAddr(token.address) + '</span>' +
+  '</div>' +
+  '</div>' +
+  '<div class="verdict-badge ' + vClass + '">' + verdictIcon(verdict) + '<span>' + verdict + '</span></div>' +
+  '</div>' +
+  '<div class="recommendation-bar ' + recClass + '">' +
+  '<span>' + escHtml(rec.label) + ':</span> <span>' + escHtml(rec.text) + '</span>' +
+  '</div>' +
+  aiHtml +
+  '<div class="score-section">' +
 '<div class="score-circle">' +
 '<svg width="80" height="80" viewBox="0 0 80 80">' +
 '<circle class="score-circle-bg" cx="40" cy="40" r="34"/>' +
@@ -304,9 +326,8 @@ logoHtml +
 '<div class="metric"><div class="metric-header"><span class="metric-icon">' + metricIcon('holders') + '</span><span class="metric-label">Top 10 Holders</span></div><span class="metric-value ' + getMetricClass('holders', token.top_10_holders_pct) + '">' + (token.top_10_holders_pct ? token.top_10_holders_pct.toFixed(1) + '%' : 'N/A') + '</span></div>' +
 '<div class="metric"><div class="metric-header"><span class="metric-icon">' + metricIcon('age') + '</span><span class="metric-label">Contract Age</span></div><span class="metric-value ' + getMetricClass('age', token.contract_age_hours) + '">' + fmtAge(token.contract_age_hours) + '</span></div>' +
 '<div class="metric"><div class="metric-header"><span class="metric-icon">' + metricIcon('price') + '</span><span class="metric-label">Price</span></div><span class="metric-value neutral">' + (token.price_formatted || 'N/A') + '</span></div>' +
-'</div>' +
-aiHtml +
-simHtml +
+  '</div>' +
+  simHtml +
 patHtml +
 compHtml +
 warningsHtml +

@@ -236,10 +236,48 @@ def analyze_single_token(address: str) -> Dict[str, Any]:
             "contract_age_hours": 0,
             "is_new": True,
             "warnings": [{"level": "warning", "text": "No security/price data available"}],
-            "recommendation": {"label": "AVOID", "text": "Insufficient data to analyze"},
-            "ai_insight": "",
-            "ai_source": "unavailable",
-            "ai_available": False,
+        "recommendation": {"label": "AVOID", "text": "Insufficient data to analyze"},
+        "ai_insight": "No security or price data available — unable to generate AI analysis.",
+    "ai_source": "unavailable",
+    "ai_available": False,
+    "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
+    "patterns": run_all_patterns({"score": 0}),
+    "from_cache": False,
+}
+
+
+def _error_token_result(token, address, error):
+    return {
+        "address": address,
+        "name": token.get("name", "Error"),
+        "symbol": token.get("symbol", "???"),
+        "logo_uri": token.get("logoURI", ""),
+        "score": 0,
+        "verdict": "ERROR",
+        "verdict_class": "risky",
+        "security_score": 0,
+        "distribution_score": 0,
+        "liquidity_score": 0,
+        "momentum_score": 0,
+        "mint_authority_revoked": False,
+        "freeze_authority_revoked": False,
+        "liquidity": 0,
+        "liquidity_formatted": "N/A",
+        "top_10_holders_pct": 0,
+        "top_holder_pct": 0,
+        "price": 0,
+        "price_formatted": "N/A",
+        "fdv": 0,
+        "fdv_formatted": "N/A",
+        "price_change_24h": 0,
+        "volume_24h": 0,
+        "contract_age_hours": 0,
+        "is_new": True,
+        "warnings": [{"level": "critical", "text": f"Analysis error: {str(error)}"}],
+        "recommendation": {"label": "AVOID", "text": "Analysis failed"},
+        "ai_insight": "Analysis failed — unable to assess this token due to data retrieval error.",
+        "ai_source": "unavailable",
+        "ai_available": False,
             "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
             "patterns": run_all_patterns({"score": 0}),
             "from_cache": False,
@@ -253,16 +291,43 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
 
     scan_start = get_api_counter()
 
+    seen_addresses = set()
+    tokens_list = []
+
     new_listings = get_birdeye_data('/defi/v2/tokens/new_listing', {'limit': limit})
-    tokens_list = extract_token_list(new_listings)
+    new_tokens = extract_token_list(new_listings)
+    for t in new_tokens:
+        addr = t.get("address", "")
+        if addr and addr not in seen_addresses:
+            seen_addresses.add(addr)
+            tokens_list.append(t)
 
-    if not tokens_list:
-        logger.warning("No new listings. Trying trending as fallback.")
+    if len(tokens_list) < limit:
+        logger.info(f"New listings returned {len(tokens_list)} tokens, fetching trending to fill up to {limit}")
         trending = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'limit': limit})
-        tokens_list = extract_token_list(trending)
+        trending_tokens = extract_token_list(trending)
+        for t in trending_tokens:
+            addr = t.get("address", "")
+            if addr and addr not in seen_addresses:
+                seen_addresses.add(addr)
+                tokens_list.append(t)
+            if len(tokens_list) >= limit:
+                break
+
+    if len(tokens_list) < limit:
+        logger.info(f"Still only {len(tokens_list)} tokens, fetching top gainers as additional fallback")
+        gainers = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'sort_by': '24hPercent', 'limit': limit})
+        gainer_tokens = extract_token_list(gainers)
+        for t in gainer_tokens:
+            addr = t.get("address", "")
+            if addr and addr not in seen_addresses:
+                seen_addresses.add(addr)
+                tokens_list.append(t)
+            if len(tokens_list) >= limit:
+                break
 
     if not tokens_list:
-        return {"error": "No tokens found from Birdeye API. Try again later.", "tokens": []}
+        return {"error": "No tokens found from Birdeye API. Rate limit may have been hit. Try again in a minute.", "tokens": []}
 
     raw_tokens = tokens_list[:limit]
     logger.info(f"Found {len(raw_tokens)} tokens to analyze")
