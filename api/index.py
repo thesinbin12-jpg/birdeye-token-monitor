@@ -7,7 +7,7 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from flask import Flask, jsonify, render_template
+from flask import Flask, jsonify, send_from_directory
 from flask_cors import CORS
 
 from utils import analyzer
@@ -18,14 +18,13 @@ logger = logging.getLogger(__name__)
 app = Flask(
     __name__,
     static_folder=os.path.join(PROJECT_ROOT, 'static'),
-    template_folder=os.path.join(PROJECT_ROOT, 'templates')
 )
 CORS(app)
 
 
 @app.route('/')
 def index():
-    return render_template('index.html')
+    return send_from_directory(os.path.join(PROJECT_ROOT, 'static'), 'index.html')
 
 
 @app.route('/api/health')
