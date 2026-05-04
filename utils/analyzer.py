@@ -166,12 +166,18 @@ def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overv
         "price_change_24h": result["price_change_24h"],
     }
 
-    ai_result = generate_ai_summary(ai_data)
-    result["ai_insight"] = ai_result.get("insight", "")
-    result["ai_source"] = ai_result.get("source", "rules")
-    result["ai_available"] = ai_result.get("available", True)
-    if ai_result.get("model"):
-        result["ai_model"] = ai_result["model"]
+    try:
+        ai_result = generate_ai_summary(ai_data)
+        result["ai_insight"] = ai_result.get("insight", "AI analysis failed to generate text")
+        result["ai_source"] = ai_result.get("source", "unavailable")
+        result["ai_available"] = ai_result.get("available", False)
+        if ai_result.get("model"):
+            result["ai_model"] = ai_result["model"]
+    except Exception as e:
+        logger.error(f"AI summary generation failed: {e}")
+        result["ai_insight"] = f"AI insight generation error: {str(e)[:100]}"
+        result["ai_source"] = "error"
+        result["ai_available"] = False
 
     sim_result = simulate_investment(ai_data, investment_usd=100)
     result["simulation"] = sim_result
