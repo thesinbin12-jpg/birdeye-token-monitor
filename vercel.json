@@ -8,10 +8,5 @@
     { "src": "/api/(.*)", "dest": "api/index.py" },
     { "src": "/", "dest": "api/index.py" },
     { "src": "/(.*)", "dest": "api/index.py" }
-  ],
-  "functions": {
-    "api/index.py": {
-      "maxDuration": 30
-    }
-  }
+  ]
 }
