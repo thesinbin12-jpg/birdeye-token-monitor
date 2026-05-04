@@ -13,44 +13,96 @@
 
 **Deployed at:** [birdeye-token-monitor.vercel.app](https://birdeye-token-monitor.vercel.app)
 
-Click **Scan Latest 15 Tokens** to analyze newly listed Solana tokens in real-time.
+- Click **Scan Latest 15 Tokens** to batch-analyze newly listed Solana tokens
+- Enter any **token address** to individually analyze a specific token
 
 ---
 
 ## Features
 
+### Analysis Engine
 - **New Listing Scanner** — Fetches latest 15 newly listed Solana tokens via `/defi/v2/tokens/new_listing`
+- **Single Token Search** — Analyze any token by address via `/api/analyze-token/<address>`
 - **Token Security Check** — Evaluates mint authority, freeze authority, and holder concentration via `/defi/token_security`
 - **Price & Liquidity Analysis** — Fetches price and liquidity data via `/defi/price` with `include_liquidity=true`
-- **Token Overview** — Retrieves FDV and logo via `/defi/token_overview`
-- **Safety Scoring Algorithm** — Scores tokens 0-100 with SAFE/CAUTION/RISKY verdicts
-- **30-Second Caching** — In-memory cache prevents duplicate API calls
-- **API Call Counter** — Global thread-safe counter tracks all API usage (76 per scan)
-- **Exponential Backoff** — Robust error handling with automatic retries (3 retries per call)
+- **Token Overview** — Retrieves FDV, logo, and holder data via `/defi/token_overview`
 - **Trending Fallback** — If new listings returns empty, falls back to `/defi/token_trending`
+
+### Scoring & Verdicts
+- **Weighted 4-Category Scoring** — Security (40pts), Distribution (25pts), Liquidity (20pts), Momentum (15pts) — total 0-100
+- **6-Tier Verdict System** — STRONG BUY, BUY, HOLD, CAUTION, AVOID, STRONG AVOID
+- **Dynamic Warnings** — Critical (🚨), Warning (⚠️), Success (✅) based on actual token data
+- **Actionable Recommendations** — Context-aware advice with reasoning per token
+- **Category Score Bars** — Visual breakdown of Security/Distribution/Liquidity/Momentum
+
+### UI & UX
+- **Filter by Verdict** — Show only SAFE, CAUTION, or RISKY tokens
+- **Sort Options** — By score, contract age, liquidity, or holder concentration
+- **Recent Searches** — Last 5 searched tokens persisted in localStorage
 - **Cyberpunk Dark UI** — Glassmorphism cards, animated score circles, gradient accents
 - **Token Logos** — Displays token logos from Birdeye listing data
-- **FDV Display** — Shows fully diluted valuation per token
+- **Address Copy** — Click any address to copy to clipboard
+
+### Technical
+- **5-Minute Cache TTL** — In-memory cache with 300s TTL prevents duplicate API calls
+- **API Call Counter** — Global thread-safe counter with per-scan tracking (76 calls per batch scan)
+- **Exponential Backoff** — Robust error handling with automatic retries (3 retries per call)
+- **Modular Architecture** — Separate `utils/analyzer.py` and `utils/scoring.py` modules
+- **Vercel Serverless** — Production deployment with zero hardcoded secrets
 
 ---
 
-## Safety Scoring Algorithm
+## Weighted Scoring Algorithm
 
-| Risk Factor | Point Deduction | Reason |
-|------------|----------------|--------|
-| Mint authority NOT revoked | -30 | Developer can mint unlimited new tokens |
-| Freeze authority NOT revoked | -25 | Developer can freeze all transfers |
-| Liquidity < $10,000 | -20 | Low liquidity = exit rug risk |
-| Top 10 holders > 60% | -15 | Centralization / whale dump risk |
-| Contract age < 24 hours | -10 | Too new = higher scam probability |
+### Security Score (0-40 pts)
+
+| Factor | Points | Condition |
+|--------|--------|-----------|
+| Mint authority revoked | 0 or 20 | -20 if active |
+| Freeze authority revoked | 0 or 15 | -15 if active |
+| Contract age >= 24h | 5 | 0 if < 24h |
+
+### Distribution Score (0-25 pts)
+
+| Top 10 Holder % | Points |
+|------------------|--------|
+| <= 30% | 25 |
+| <= 40% | 20 |
+| <= 50% | 15 |
+| <= 60% | 8 |
+| <= 80% | 4 |
+| > 80% | 0 |
+
+### Liquidity Score (0-20 pts)
+
+| Liquidity (USD) | Points |
+|-----------------|--------|
+| >= $50,000 | 20 |
+| >= $10,000 | 15 |
+| >= $5,000 | 10 |
+| >= $1,000 | 5 |
+| < $1,000 | 0 |
+
+### Momentum Score (0-15 pts)
+
+| Price Change 24h | Points |
+|-------------------|--------|
+| >= +10% | 15 |
+| >= 0% | 10 |
+| >= -10% | 5 |
+| < -10% | 0 |
+| No data | 0 |
 
 ### Verdict Thresholds
 
 | Score | Verdict | Color |
 |-------|---------|-------|
-| 70-100 | **SAFE** | Green |
-| 40-69 | **CAUTION** | Yellow |
-| 0-39 | **RISKY** | Red |
+| 85-100 | **STRONG BUY** | Green |
+| 70-84 | **BUY** | Green |
+| 55-69 | **HOLD** | Yellow |
+| 40-54 | **CAUTION** | Orange |
+| 20-39 | **AVOID** | Red |
+| 0-19 | **STRONG AVOID** | Red |
 
 ---
 
@@ -63,12 +115,14 @@ Click **Scan Latest 15 Tokens** to analyze newly listed Solana tokens in real-ti
 | `/defi/v2/tokens/new_listing` | Get latest 15 new listings | 1 |
 | `/defi/token_security` | Mint/freeze/holder data per token | 15 |
 | `/defi/price` | Price + liquidity per token | 15 |
-| `/defi/token_overview` | FDV + logo per token | 15 |
+| `/defi/token_overview` | FDV + logo + holders per token | 15 |
 | `/defi/token_trending` | Fallback if new listings empty | up to 15 |
 | Retry attempts | Exponential backoff retries | ~15 |
 | **Total** | | **76** |
 
 Each scan uses 4 distinct Birdeye API endpoints, well exceeding the 3-4 endpoint requirement.
+
+Single token search uses ~4-6 API calls per token.
 
 ---
 
@@ -107,16 +161,20 @@ Or connect your GitHub repo to Vercel for automatic deployments.
 birdeye-token-radar/
 ├── api/
 │   └── index.py          # Flask app (Vercel serverless entry point)
+├── utils/
+│   ├── __init__.py       # Package init
+│   ├── analyzer.py       # Core analysis engine (caching, API counter, scan + single token)
+│   └── scoring.py        # Weighted scoring, warnings, recommendations, formatters
 ├── app.py                # Flask app (local development entry point)
 ├── requirements.txt      # Python dependencies
 ├── vercel.json           # Vercel deployment config
 ├── .env.example          # Environment template
 ├── test_50_calls.py      # API call verification script
 ├── templates/
-│   └── index.html        # Main dashboard (inlined CSS + JS)
+│   └── index.html        # Main dashboard HTML
 └── static/
-    ├── style.css         # External CSS (fallback)
-    ├── app.js            # External JS (fallback)
+    ├── style.css         # All CSS (cyberpunk dark theme)
+    ├── app.js            # All JS (search, filter, sort, card rendering)
     └── logo.svg          # Radar icon SVG
 ```
 
@@ -127,6 +185,17 @@ birdeye-token-radar/
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `BIRDEYE_API_KEY` | Yes | Your Birdeye API key from [birdeye.so](https://birdeye.so) |
+
+---
+
+## API Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/` | GET | Dashboard UI |
+| `/api/scan-new-tokens` | POST | Batch scan 15 newest tokens |
+| `/api/analyze-token/<address>` | GET | Analyze a single token by address |
+| `/api/health` | GET | API health check + call counter |
 
 ---
 
@@ -148,12 +217,13 @@ curl https://birdeye-token-monitor.vercel.app/api/health
 
 - 76 API calls per scan (50+ required)
 - 4 distinct Birdeye API endpoints (3-4 required)
-- In-memory caching with 30s TTL
-- Thread-safe API call counter
+- In-memory caching with 5-min TTL
+- Thread-safe API call counter with per-scan tracking
 - Exponential backoff retry logic
-- Clean responsive cyberpunk UI
+- Clean responsive cyberpunk UI with filter/sort
 - Vercel serverless deployment
 - Proper error handling with fallback
+- Modular architecture with separate scoring engine
 
 ---
 
