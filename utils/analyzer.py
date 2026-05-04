@@ -356,23 +356,24 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
         price_resp = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
         overview_resp = get_birdeye_data('/defi/token_overview', {"address": address})
 
-        try:
-            sec = security_resp.get("data", {}) if security_resp else {}
-            pri = price_resp.get("data", {}) if price_resp else {}
-            ovr = overview_resp.get("data", {}) if overview_resp else {}
+    try:
+        sec = security_resp.get("data", {}) if security_resp else {}
+        pri = price_resp.get("data", {}) if price_resp else {}
+        ovr = overview_resp.get("data", {}) if overview_resp else {}
 
-            if sec or pri:
-                result = analyze_token(token, sec, pri, ovr)
-                set_cached(address, result)
-                result["from_cache"] = False
-                results.append(result)
-                logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']})")
-            else:
-                empty = _empty_token_result(token, address)
-                results.append(empty)
-        except Exception as e:
-            logger.error(f"Error processing {address}: {e}")
-            results.append(_error_token_result(token, address, e))
+        if sec or pri:
+            result = analyze_token(token, sec, pri, ovr)
+            set_cached(address, result)
+            result["from_cache"] = False
+            results.append(result)
+            logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']}) - AI: {result.get('ai_insight', 'MISSING')[:50]}")
+        else:
+            empty = _empty_token_result(token, address)
+            results.append(empty)
+            logger.info(f"Empty result for {token.get('symbol')} - no security/price data")
+    except Exception as e:
+        logger.error(f"Error processing {address}: {e}")
+        results.append(_error_token_result(token, address, e))
 
     scan_end = get_api_counter()
     calls_this_scan = scan_end - scan_start
