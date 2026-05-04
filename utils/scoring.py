@@ -2,36 +2,44 @@ import time
 from datetime import datetime
 
 
-def calculate_security_score(security_data, price_data):
+def calculate_security_score(security_data, price_data, age_hours=0):
     score = 0
     details = {}
 
     mint_val = security_data.get("mintAuthority", "")
-    if mint_val and str(mint_val).lower() not in ("null", "", "none"):
-        score -= 40
-        details["mint_revoked"] = False
+    mint_revoked = not mint_val or str(mint_val).lower() in ("null", "", "none")
+    if mint_revoked:
+        score += 10
     else:
-        score += 15
-        details["mint_revoked"] = True
+        score -= 40
+    details["mint_revoked"] = mint_revoked
 
     freeze_val = security_data.get("freezeAuthority", "")
-    if freeze_val and str(freeze_val).lower() not in ("null", "", "none"):
-        score -= 35
-        details["freeze_revoked"] = False
+    freeze_revoked = not freeze_val or str(freeze_val).lower() in ("null", "", "none")
+    if freeze_revoked:
+        score += 10
     else:
-        score += 15
-        details["freeze_revoked"] = True
+        score -= 35
+    details["freeze_revoked"] = freeze_revoked
 
     liquidity = float(price_data.get("liquidity", 0) or 0)
+    details["liquidity"] = liquidity
+
     if liquidity >= 50000:
         score += 10
     elif liquidity >= 10000:
         score += 5
     elif liquidity < 1000:
-        score -= 30
+        score -= 35
+    elif liquidity < 5000:
+        score -= 25
     else:
         score -= 15
-    details["liquidity"] = liquidity
+
+    if age_hours < 1 and age_hours > 0:
+        score -= 25
+    elif age_hours < 24 and age_hours > 0:
+        score -= 15
 
     score = max(0, min(40, score + 20))
     return score, details
@@ -44,16 +52,28 @@ def calculate_distribution_score(security_data):
     holder_data = security_data.get("holder", {}) or {}
     top_10_pct = float(holder_data.get("top10HolderPercent", 0) or 0)
 
-    if top_10_pct < 30:
+    if top_10_pct < 20:
         score += 25
-    elif top_10_pct < 50:
+    elif top_10_pct < 40:
         score += 15
-    elif top_10_pct < 70:
-        score -= 10
+    elif top_10_pct < 60:
+        score += 5
     else:
         score -= 25
 
     details["top_10_holders_pct"] = top_10_pct
+
+    top_holder_pct = 0
+    holders_list = holder_data.get("topHolders", []) or []
+    if holders_list and len(holders_list) > 0:
+        try:
+            top_holder_pct = float(holders_list[0].get("pct", 0) or 0)
+        except (ValueError, TypeError, IndexError):
+            top_holder_pct = 0
+    if top_holder_pct > 20:
+        score -= 10
+    details["top_holder_pct"] = top_holder_pct
+
     score = max(0, min(25, score + 5))
     return score, details
 
@@ -64,16 +84,18 @@ def calculate_liquidity_score(price_data):
 
     liquidity = float(price_data.get("liquidity", 0) or 0)
 
-    if liquidity >= 50000:
+    if liquidity >= 100000:
         score = 20
-    elif liquidity >= 10000:
+    elif liquidity >= 50000:
         score = 15
-    elif liquidity >= 5000:
+    elif liquidity >= 10000:
         score = 10
+    elif liquidity >= 5000:
+        score = 5
     elif liquidity < 1000:
-        score = -20
+        score = -30
     else:
-        score = 0
+        score = -15
 
     details["liquidity"] = liquidity
     score = max(0, min(20, score))
@@ -87,39 +109,53 @@ def calculate_momentum_score(token_data, overview_data):
     price_change = float(overview_data.get("priceChange24h", 0) or 0)
     if -50 <= price_change <= 200:
         score += 10
+    elif 200 < price_change <= 500:
+        score += 5
     elif price_change > 500:
         score -= 15
-    else:
-        score += 0
 
     volume = float(overview_data.get("volume24h", 0) or 0)
     if volume > 10000:
         score += 5
+    elif volume > 0:
+        score += 2
 
     details["price_change_24h"] = price_change
     details["volume_24h"] = volume
-    score = max(0, min(15, score + 5))
+    score = max(0, min(15, score + 3))
     return score, details
 
 
-def calculate_overall_score(token_data, security_data, price_data, overview_data):
-    sec_score, sec_details = calculate_security_score(security_data, price_data)
+def apply_critical_multipliers(total_score, sec_details, liq_details, age_hours):
+    if not sec_details.get("mint_revoked", True) and not sec_details.get("freeze_revoked", True):
+        total_score = min(total_score, 25)
+
+    liq = liq_details.get("liquidity", 0)
+    if liq < 1000:
+        total_score = min(total_score, 35)
+
+    return total_score
+
+
+def calculate_overall_score(token_data, security_data, price_data, overview_data, age_hours=0):
+    sec_score, sec_details = calculate_security_score(security_data, price_data, age_hours)
     dist_score, dist_details = calculate_distribution_score(security_data)
     liq_score, liq_details = calculate_liquidity_score(price_data)
     mom_score, mom_details = calculate_momentum_score(token_data, overview_data)
 
     total = sec_score + dist_score + liq_score + mom_score
+
+    total = apply_critical_multipliers(total, sec_details, liq_details, age_hours)
+
     total = max(0, min(100, total))
 
     if total >= 85:
         verdict = "STRONG BUY"
     elif total >= 70:
         verdict = "BUY"
-    elif total >= 55:
+    elif total >= 50:
         verdict = "HOLD"
-    elif total >= 40:
-        verdict = "CAUTION"
-    elif total >= 20:
+    elif total >= 30:
         verdict = "AVOID"
     else:
         verdict = "STRONG AVOID"
@@ -135,6 +171,7 @@ def calculate_overall_score(token_data, security_data, price_data, overview_data
         "freeze_authority_revoked": sec_details.get("freeze_revoked", False),
         "liquidity": liq_details.get("liquidity", sec_details.get("liquidity", 0)),
         "top_10_holders_pct": dist_details.get("top_10_holders_pct", 0),
+        "top_holder_pct": dist_details.get("top_holder_pct", 0),
         "price_change_24h": mom_details.get("price_change_24h", 0),
         "volume_24h": mom_details.get("volume_24h", 0),
     }
@@ -145,24 +182,36 @@ def generate_warnings(analysis):
 
     if not analysis.get("mint_authority_revoked", True):
         warnings.append({"level": "critical", "text": "Mint NOT revoked - Infinite mint risk"})
-
     if not analysis.get("freeze_authority_revoked", True):
         warnings.append({"level": "critical", "text": "Freeze NOT revoked - Dev can freeze transfers"})
 
+    if not analysis.get("mint_authority_revoked", True) and not analysis.get("freeze_authority_revoked", True):
+        warnings.append({"level": "critical", "text": "Mint + Freeze both active - Classic rug setup"})
+
     liq = analysis.get("liquidity", 0)
     if liq < 1000:
-        warnings.append({"level": "critical", "text": f"Liquidity ${liq:.0f} - Extremely low, hard to sell"})
+        warnings.append({"level": "critical", "text": f"Liquidity ${liq:.0f} - Exit nearly impossible"})
     elif liq < 5000:
+        warnings.append({"level": "critical", "text": f"Liquidity ${liq:.0f} - Very low, hard to sell"})
+    elif liq < 10000:
         warnings.append({"level": "warning", "text": f"Liquidity ${liq:.0f} - Low, limited exit"})
 
     top10 = analysis.get("top_10_holders_pct", 0)
-    if top10 > 70:
-        warnings.append({"level": "critical", "text": f"Top 10 holders {top10:.0f}% - Can dump anytime"})
-    elif top10 > 50:
-        warnings.append({"level": "warning", "text": f"Top 10 holders {top10:.0f}% - Whale concentration risk"})
+    if top10 > 80:
+        warnings.append({"level": "critical", "text": f"Top 10 holders {top10:.0f}% - Whale dump risk"})
+    elif top10 > 60:
+        warnings.append({"level": "critical", "text": f"Top 10 holders {top10:.0f}% - High concentration"})
+    elif top10 > 40:
+        warnings.append({"level": "warning", "text": f"Top 10 holders {top10:.0f}% - Moderate concentration"})
+
+    price_change = analysis.get("price_change_24h", 0)
+    if price_change > 500:
+        warnings.append({"level": "critical", "text": f"Price +{price_change:.0f}% in 24h - Pump & dump risk"})
+    elif price_change > 200:
+        warnings.append({"level": "warning", "text": f"Price +{price_change:.0f}% in 24h - Volatile"})
 
     if analysis.get("mint_authority_revoked") and analysis.get("freeze_authority_revoked"):
-        warnings.append({"level": "success", "text": "Mint & Freeze both revoked"})
+        warnings.append({"level": "success", "text": "Mint & Freeze both revoked - Safe"})
 
     if liq >= 50000:
         warnings.append({"level": "success", "text": f"Strong liquidity ${liq/1000:.0f}K"})
@@ -170,32 +219,54 @@ def generate_warnings(analysis):
     if top10 < 30:
         warnings.append({"level": "success", "text": f"Fair distribution - Top 10 < {top10:.0f}%"})
 
+    if -50 <= price_change <= 200 and price_change != 0:
+        warnings.append({"level": "success", "text": f"Stable price movement ({price_change:+.0f}%)"})
+
     return warnings
 
 
-def get_recommendation(score):
+def get_recommendation(score, analysis=None):
     if score >= 85:
-        return {"label": "STRONG BUY", "text": "Excellent fundamentals. Low risk."}
+        text = "Excellent fundamentals across all categories."
     elif score >= 70:
-        return {"label": "BUY", "text": "Solid project. Monitor for dips."}
-    elif score >= 55:
-        return {"label": "HOLD", "text": "Mixed signals. Wait for clarity."}
-    elif score >= 40:
-        return {"label": "CAUTION", "text": "Elevated risk. Small positions only."}
-    elif score >= 20:
-        return {"label": "AVOID", "text": "High risk. Multiple red flags."}
+        text = "Solid project. Monitor for dips."
+    elif score >= 50:
+        text = "Mixed signals. Small positions only."
+    elif score >= 30:
+        text = "High risk. Multiple red flags present."
     else:
-        return {"label": "STRONG AVOID", "text": "Likely rug pull. Do not invest."}
+        text = "Likely rug pull. Do not invest."
+
+    if analysis:
+        if not analysis.get("mint_authority_revoked", True):
+            text = "Mint authority active. Dangerous."
+        elif not analysis.get("freeze_authority_revoked", True):
+            text = "Freeze authority active. Can lock your tokens."
+        elif analysis.get("liquidity", 0) < 1000:
+            text = "Near-zero liquidity. Cannot exit position."
+        elif analysis.get("top_10_holders_pct", 0) > 70:
+            text = "Whale-dominated. Dump risk extreme."
+
+    if score >= 85:
+        label = "STRONG BUY"
+    elif score >= 70:
+        label = "BUY"
+    elif score >= 50:
+        label = "HOLD"
+    elif score >= 30:
+        label = "AVOID"
+    else:
+        label = "STRONG AVOID"
+
+    return {"label": label, "text": text}
 
 
 def get_verdict_class(verdict):
     v = (verdict or "").upper()
     if v in ("STRONG BUY", "BUY"):
         return "safe"
-    elif v in ("HOLD", "CAUTION"):
+    elif v in ("HOLD",):
         return "caution"
-    elif v in ("AVOID", "STRONG AVOID"):
-        return "risky"
     return "risky"
 
 

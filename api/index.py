@@ -33,6 +33,7 @@ def health():
         "status": "ok",
         "api_calls_made": analyzer.get_api_counter(),
         "cache_entries": analyzer.get_cache_count(),
+        "groq_configured": bool(os.environ.get("GROQ_API_KEY", "")),
     })
 
 

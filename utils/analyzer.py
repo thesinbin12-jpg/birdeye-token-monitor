@@ -15,6 +15,11 @@ from utils.scoring import (
     format_liquidity,
     format_fdv,
 )
+from utils.cache import get_cached, set_cached, get_cache_count, clear_cache
+from utils.ai_insights import generate_ai_summary
+from utils.simulation import simulate_investment
+from utils.pattern_matching import run_all_patterns
+from utils.comparative import generate_comparative
 
 logger = logging.getLogger(__name__)
 
@@ -23,17 +28,12 @@ BASE_URL = "https://public-api.birdeye.so"
 api_call_counter = 0
 counter_lock = Lock()
 
-token_cache: Dict[str, Dict[str, Any]] = {}
-cache_lock = Lock()
-
-CACHE_TTL_SECONDS = 300
-
 
 def increment_api_counter() -> int:
     global api_call_counter
     with counter_lock:
         api_call_counter += 1
-        return api_call_counter
+    return api_call_counter
 
 
 def get_api_counter() -> int:
@@ -45,26 +45,7 @@ def reset_api_counter() -> int:
     with counter_lock:
         old = api_call_counter
         api_call_counter = 0
-        return old
-
-
-def get_cached(address: str) -> Optional[Dict[str, Any]]:
-    with cache_lock:
-        if address in token_cache:
-            entry = token_cache[address]
-            if time.time() - entry["timestamp"] < CACHE_TTL_SECONDS:
-                return entry["data"]
-    return None
-
-
-def set_cached(address: str, data: Dict[str, Any]) -> None:
-    with cache_lock:
-        token_cache[address] = {"data": data, "timestamp": time.time()}
-
-
-def get_cache_count() -> int:
-    with cache_lock:
-        return len(token_cache)
+    return old
 
 
 def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 3) -> Dict[str, Any]:
@@ -130,7 +111,7 @@ def extract_token_list(api_response: Dict) -> List[Dict]:
 def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overview_data: Dict) -> Dict[str, Any]:
     analysis = calculate_overall_score(token_data, security_data, price_data, overview_data)
     warnings = generate_warnings(analysis)
-    recommendation = get_recommendation(analysis["overall_score"])
+    recommendation = get_recommendation(analysis["overall_score"], analysis)
     verdict_class = get_verdict_class(analysis["verdict"])
 
     age_hours, is_new = format_contract_age(token_data, security_data)
@@ -142,7 +123,7 @@ def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overv
     fdv = float(overview_data.get("fdv", 0) or 0) or float(token_data.get("fdv", 0) or 0)
     logo_uri = token_data.get("logoURI", "") or overview_data.get("logoURI", "") or ""
 
-    return {
+    result = {
         "address": token_data.get("address", ""),
         "name": token_data.get("name", "Unknown"),
         "symbol": token_data.get("symbol", "???"),
@@ -159,6 +140,7 @@ def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overv
         "liquidity": liquidity,
         "liquidity_formatted": format_liquidity(liquidity),
         "top_10_holders_pct": analysis["top_10_holders_pct"],
+        "top_holder_pct": analysis.get("top_holder_pct", 0),
         "price": price,
         "price_formatted": format_price(price),
         "fdv": fdv,
@@ -170,6 +152,34 @@ def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overv
         "warnings": warnings,
         "recommendation": recommendation,
     }
+
+    ai_data = {
+        "address": result["address"],
+        "name": result["name"],
+        "symbol": result["symbol"],
+        "score": result["score"],
+        "verdict": result["verdict"],
+        "liquidity": result["liquidity"],
+        "mint_authority_revoked": result["mint_authority_revoked"],
+        "freeze_authority_revoked": result["freeze_authority_revoked"],
+        "top_10_holders_pct": result["top_10_holders_pct"],
+        "price_change_24h": result["price_change_24h"],
+    }
+
+    ai_result = generate_ai_summary(ai_data)
+    result["ai_insight"] = ai_result.get("insight", "")
+    result["ai_source"] = ai_result.get("source", "rules")
+    result["ai_available"] = ai_result.get("available", True)
+    if ai_result.get("model"):
+        result["ai_model"] = ai_result["model"]
+
+    sim_result = simulate_investment(ai_data, investment_usd=100)
+    result["simulation"] = sim_result
+
+    pattern_result = run_all_patterns(ai_data)
+    result["patterns"] = pattern_result
+
+    return result
 
 
 def analyze_single_token(address: str) -> Dict[str, Any]:
@@ -216,6 +226,7 @@ def analyze_single_token(address: str) -> Dict[str, Any]:
             "liquidity": 0,
             "liquidity_formatted": "N/A",
             "top_10_holders_pct": 0,
+            "top_holder_pct": 0,
             "price": 0,
             "price_formatted": "N/A",
             "fdv": 0,
@@ -226,6 +237,11 @@ def analyze_single_token(address: str) -> Dict[str, Any]:
             "is_new": True,
             "warnings": [{"level": "warning", "text": "No security/price data available"}],
             "recommendation": {"label": "AVOID", "text": "Insufficient data to analyze"},
+            "ai_insight": "",
+            "ai_source": "unavailable",
+            "ai_available": False,
+            "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
+            "patterns": run_all_patterns({"score": 0}),
             "from_cache": False,
         }
 
@@ -281,75 +297,103 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
                 results.append(result)
                 logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']})")
             else:
-                results.append({
-                    "address": address,
-                    "name": token.get("name", "Unknown"),
-                    "symbol": token.get("symbol", "???"),
-                    "logo_uri": token.get("logoURI", ""),
-                    "score": 0,
-                    "verdict": "UNKNOWN",
-                    "verdict_class": "risky",
-                    "security_score": 0,
-                    "distribution_score": 0,
-                    "liquidity_score": 0,
-                    "momentum_score": 0,
-                    "mint_authority_revoked": False,
-                    "freeze_authority_revoked": False,
-                    "liquidity": 0,
-                    "liquidity_formatted": "N/A",
-                    "top_10_holders_pct": 0,
-                    "price": 0,
-                    "price_formatted": "N/A",
-                    "fdv": 0,
-                    "fdv_formatted": "N/A",
-                    "price_change_24h": 0,
-                    "volume_24h": 0,
-                    "contract_age_hours": 0,
-                    "is_new": True,
-                    "warnings": [{"level": "warning", "text": "No data available"}],
-                    "recommendation": {"label": "AVOID", "text": "Insufficient data"},
-                    "from_cache": False,
-                })
+                empty = _empty_token_result(token, address)
+                results.append(empty)
         except Exception as e:
             logger.error(f"Error processing {address}: {e}")
-            results.append({
-                "address": address,
-                "name": token.get("name", "Error"),
-                "symbol": token.get("symbol", "???"),
-                "logo_uri": token.get("logoURI", ""),
-                "score": 0,
-                "verdict": "ERROR",
-                "verdict_class": "risky",
-                "security_score": 0,
-                "distribution_score": 0,
-                "liquidity_score": 0,
-                "momentum_score": 0,
-                "mint_authority_revoked": False,
-                "freeze_authority_revoked": False,
-                "liquidity": 0,
-                "liquidity_formatted": "N/A",
-                "top_10_holders_pct": 0,
-                "price": 0,
-                "price_formatted": "N/A",
-                "fdv": 0,
-                "fdv_formatted": "N/A",
-                "price_change_24h": 0,
-                "volume_24h": 0,
-                "contract_age_hours": 0,
-                "is_new": True,
-                "warnings": [{"level": "critical", "text": f"Analysis error: {str(e)}"}],
-                "recommendation": {"label": "AVOID", "text": "Analysis failed"},
-                "from_cache": False,
-            })
+            results.append(_error_token_result(token, address, e))
 
     scan_end = get_api_counter()
     calls_this_scan = scan_end - scan_start
 
+    comp_results = []
+    for result in results:
+        comp = generate_comparative(result, results)
+        result["comparative"] = comp
+        comp_results.append(result)
+
     logger.info(f"=== Scan complete. Total API calls: {api_call_counter}, this scan: {calls_this_scan} ===")
 
     return {
-        "tokens": results,
+        "tokens": comp_results,
         "total_api_calls": api_call_counter,
         "calls_this_scan": calls_this_scan,
         "tokens_scanned": len(results),
+        "batch_stats": generate_comparative(results[0] if results else {}, results).get("batch_stats", {}),
+    }
+
+
+def _empty_token_result(token, address):
+    return {
+        "address": address,
+        "name": token.get("name", "Unknown"),
+        "symbol": token.get("symbol", "???"),
+        "logo_uri": token.get("logoURI", ""),
+        "score": 0,
+        "verdict": "UNKNOWN",
+        "verdict_class": "risky",
+        "security_score": 0,
+        "distribution_score": 0,
+        "liquidity_score": 0,
+        "momentum_score": 0,
+        "mint_authority_revoked": False,
+        "freeze_authority_revoked": False,
+        "liquidity": 0,
+        "liquidity_formatted": "N/A",
+        "top_10_holders_pct": 0,
+        "top_holder_pct": 0,
+        "price": 0,
+        "price_formatted": "N/A",
+        "fdv": 0,
+        "fdv_formatted": "N/A",
+        "price_change_24h": 0,
+        "volume_24h": 0,
+        "contract_age_hours": 0,
+        "is_new": True,
+        "warnings": [{"level": "warning", "text": "No data available"}],
+        "recommendation": {"label": "AVOID", "text": "Insufficient data"},
+        "ai_insight": "",
+        "ai_source": "unavailable",
+        "ai_available": False,
+        "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
+        "patterns": run_all_patterns({"score": 0}),
+        "from_cache": False,
+    }
+
+
+def _error_token_result(token, address, error):
+    return {
+        "address": address,
+        "name": token.get("name", "Error"),
+        "symbol": token.get("symbol", "???"),
+        "logo_uri": token.get("logoURI", ""),
+        "score": 0,
+        "verdict": "ERROR",
+        "verdict_class": "risky",
+        "security_score": 0,
+        "distribution_score": 0,
+        "liquidity_score": 0,
+        "momentum_score": 0,
+        "mint_authority_revoked": False,
+        "freeze_authority_revoked": False,
+        "liquidity": 0,
+        "liquidity_formatted": "N/A",
+        "top_10_holders_pct": 0,
+        "top_holder_pct": 0,
+        "price": 0,
+        "price_formatted": "N/A",
+        "fdv": 0,
+        "fdv_formatted": "N/A",
+        "price_change_24h": 0,
+        "volume_24h": 0,
+        "contract_age_hours": 0,
+        "is_new": True,
+        "warnings": [{"level": "critical", "text": f"Analysis error: {str(error)}"}],
+        "recommendation": {"label": "AVOID", "text": "Analysis failed"},
+        "ai_insight": "",
+        "ai_source": "unavailable",
+        "ai_available": False,
+        "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
+        "patterns": run_all_patterns({"score": 0}),
+        "from_cache": False,
     }
