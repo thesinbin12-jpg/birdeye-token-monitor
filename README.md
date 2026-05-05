@@ -136,6 +136,3 @@ vercel deploy
 ## 📄 License
 
 Distributed under the **Apache 2.0 License**. See `LICENSE` for more information.
-
----
-*Built with ❤️ for the Birdeye community.*
