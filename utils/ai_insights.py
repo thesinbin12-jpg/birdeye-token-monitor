@@ -1,4 +1,5 @@
 import os
+import re
 import logging
 import time
 
@@ -15,6 +16,14 @@ except ImportError:
     logger.info("groq package not installed. AI insights disabled.")
 
 MODEL_CHAIN = ["qwen/qwen3-32b", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+
+def strip_think_tags(text):
+    text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    text = re.sub(r'\[think\].*?\[/think\]', '', text, flags=re.DOTALL)
+    text = re.sub(r'\[ reasoning.*?\]', '', text, flags=re.DOTALL)
+    text = re.sub(r' dom.*?(?=\.)', '', text, flags=re.DOTALL)
+    return text.strip()
 
 
 def generate_ai_summary(token_data, score_data=None):
@@ -59,7 +68,7 @@ def generate_ai_summary(token_data, score_data=None):
             response = client.chat.completions.create(
                 model=model,
                 messages=[
-                    {"role": "system", "content": "You are a concise crypto risk analyst. Give 1-2 sentence risk assessments. Never give financial advice."},
+                    {"role": "system", "content": "You are a concise crypto risk analyst. Give 1-2 sentence risk assessments. Never give financial advice. Do NOT use think tags."},
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=60,
@@ -67,6 +76,10 @@ def generate_ai_summary(token_data, score_data=None):
             )
 
             insight = response.choices[0].message.content.strip()
+            insight = strip_think_tags(insight)
+            if not insight or len(insight) < 10:
+                logger.warning(f"Model {model} returned empty/short insight after stripping think tags, trying next")
+                continue
             result = {"insight": insight, "source": "groq", "model": model, "available": True}
 
             _insight_cache[address] = {"data": result, "ts": time.time()}
