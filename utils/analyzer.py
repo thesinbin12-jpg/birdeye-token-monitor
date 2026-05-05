@@ -2,6 +2,7 @@ import os
 import time
 import logging
 import requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from threading import Lock
 from typing import Dict, Any, Optional, List
 
@@ -33,7 +34,7 @@ def increment_api_counter() -> int:
     global api_call_counter
     with counter_lock:
         api_call_counter += 1
-    return api_call_counter
+        return api_call_counter
 
 
 def get_api_counter() -> int:
@@ -45,10 +46,10 @@ def reset_api_counter() -> int:
     with counter_lock:
         old = api_call_counter
         api_call_counter = 0
-    return old
+        return old
 
 
-def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 3) -> Dict[str, Any]:
+def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 2) -> Dict[str, Any]:
     headers = {
         "accept": "application/json",
         "X-API-KEY": os.environ.get("BIRDEYE_API_KEY", ""),
@@ -61,7 +62,7 @@ def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 3) -> Di
             call_count = increment_api_counter()
             logger.info(f"API Call #{call_count}: {endpoint} params={params}")
 
-            resp = requests.get(url, headers=headers, params=params, timeout=30)
+            resp = requests.get(url, headers=headers, params=params, timeout=8)
 
             if resp.status_code == 429:
                 wait = 2 ** attempt
@@ -70,7 +71,7 @@ def get_birdeye_data(endpoint: str, params: Dict = None, retries: int = 3) -> Di
                 continue
 
             if resp.status_code >= 500:
-                wait = 2 ** attempt
+                wait = 1
                 logger.warning(f"Server error {resp.status_code} on {endpoint}. Retry in {wait}s...")
                 time.sleep(wait)
                 continue
@@ -188,109 +189,47 @@ def analyze_token(token_data: Dict, security_data: Dict, price_data: Dict, overv
     return result
 
 
+def _fetch_token_data(address: str) -> tuple:
+    price_resp = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
+    overview_resp = get_birdeye_data('/defi/token_overview', {"address": address})
+    return address, price_resp, overview_resp
+
+
 def analyze_single_token(address: str) -> Dict[str, Any]:
     cached = get_cached(address)
     if cached:
         cached["from_cache"] = True
         return cached
 
-    security_resp = get_birdeye_data('/defi/token_security', {"address": address})
-    price_resp = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
-    overview_resp = get_birdeye_data('/defi/token_overview', {"address": address})
+    price_resp, overview_resp = _fetch_token_data_with_security(address)
 
-    sec = security_resp.get("data", {}) if security_resp else {}
     pri = price_resp.get("data", {}) if price_resp else {}
     ovr = overview_resp.get("data", {}) if overview_resp else {}
 
     token_data = {
         "address": address,
-        "name": sec.get("tokenMetadata", {}).get("name", "") or ovr.get("name", "Unknown"),
-        "symbol": sec.get("tokenMetadata", {}).get("symbol", "") or ovr.get("symbol", "???"),
+        "name": ovr.get("name", "Unknown"),
+        "symbol": ovr.get("symbol", "???"),
         "logoURI": ovr.get("logoURI", ""),
     }
 
-    if sec or pri:
-        result = analyze_token(token_data, sec, pri, ovr)
+    if pri or ovr:
+        result = analyze_token(token_data, {}, pri, ovr)
         set_cached(address, result)
         result["from_cache"] = False
         return result
     else:
-        return {
-            "address": address,
-            "name": ovr.get("name", "Unknown"),
-            "symbol": ovr.get("symbol", "???"),
-            "logo_uri": ovr.get("logoURI", ""),
-            "score": 0,
-            "verdict": "UNKNOWN",
-            "verdict_class": "risky",
-            "security_score": 0,
-            "distribution_score": 0,
-            "liquidity_score": 0,
-            "momentum_score": 0,
-            "mint_authority_revoked": False,
-            "freeze_authority_revoked": False,
-            "liquidity": 0,
-            "liquidity_formatted": "N/A",
-            "top_10_holders_pct": 0,
-            "top_holder_pct": 0,
-            "price": 0,
-            "price_formatted": "N/A",
-            "fdv": 0,
-            "fdv_formatted": "N/A",
-            "price_change_24h": 0,
-            "volume_24h": 0,
-            "contract_age_hours": 0,
-            "is_new": True,
-            "warnings": [{"level": "warning", "text": "No security/price data available"}],
-        "recommendation": {"label": "AVOID", "text": "Insufficient data to analyze"},
-        "ai_insight": "No security or price data available — unable to generate AI analysis.",
-    "ai_source": "unavailable",
-    "ai_available": False,
-    "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
-    "patterns": run_all_patterns({"score": 0}),
-    "from_cache": False,
-}
+        return _empty_token_result(token_data, address)
 
 
-def _error_token_result(token, address, error):
-    return {
-        "address": address,
-        "name": token.get("name", "Error"),
-        "symbol": token.get("symbol", "???"),
-        "logo_uri": token.get("logoURI", ""),
-        "score": 0,
-        "verdict": "ERROR",
-        "verdict_class": "risky",
-        "security_score": 0,
-        "distribution_score": 0,
-        "liquidity_score": 0,
-        "momentum_score": 0,
-        "mint_authority_revoked": False,
-        "freeze_authority_revoked": False,
-        "liquidity": 0,
-        "liquidity_formatted": "N/A",
-        "top_10_holders_pct": 0,
-        "top_holder_pct": 0,
-        "price": 0,
-        "price_formatted": "N/A",
-        "fdv": 0,
-        "fdv_formatted": "N/A",
-        "price_change_24h": 0,
-        "volume_24h": 0,
-        "contract_age_hours": 0,
-        "is_new": True,
-        "warnings": [{"level": "critical", "text": f"Analysis error: {str(error)}"}],
-        "recommendation": {"label": "AVOID", "text": "Analysis failed"},
-        "ai_insight": "Analysis failed — unable to assess this token due to data retrieval error.",
-        "ai_source": "unavailable",
-        "ai_available": False,
-            "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
-            "patterns": run_all_patterns({"score": 0}),
-            "from_cache": False,
-        }
+def _fetch_token_data_with_security(address: str) -> tuple:
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        price_fut = pool.submit(get_birdeye_data, '/defi/price', {"address": address, "include_liquidity": "true"})
+        overview_fut = pool.submit(get_birdeye_data, '/defi/token_overview', {"address": address})
+    return price_fut.result(), overview_fut.result()
 
 
-def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
+def scan_new_tokens(limit: int = 5) -> Dict[str, Any]:
     api_key = os.environ.get("BIRDEYE_API_KEY", "")
     if not api_key or api_key == "your_api_key_here":
         return {"error": "API key not configured. Set BIRDEYE_API_KEY in Vercel settings.", "tokens": []}
@@ -309,7 +248,7 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
             tokens_list.append(t)
 
     if len(tokens_list) < limit:
-        logger.info(f"New listings returned {len(tokens_list)} tokens, fetching trending to fill up to {limit}")
+        logger.info(f"New listings returned {len(tokens_list)} tokens, fetching trending to fill")
         trending = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'limit': limit})
         trending_tokens = extract_token_list(trending)
         for t in trending_tokens:
@@ -317,20 +256,8 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
             if addr and addr not in seen_addresses:
                 seen_addresses.add(addr)
                 tokens_list.append(t)
-            if len(tokens_list) >= limit:
-                break
-
-    if len(tokens_list) < limit:
-        logger.info(f"Still only {len(tokens_list)} tokens, fetching top gainers as additional fallback")
-        gainers = get_birdeye_data('/defi/token_trending', {'sort_by': 'rank', 'sort_by': '24hPercent', 'limit': limit})
-        gainer_tokens = extract_token_list(gainers)
-        for t in gainer_tokens:
-            addr = t.get("address", "")
-            if addr and addr not in seen_addresses:
-                seen_addresses.add(addr)
-                tokens_list.append(t)
-            if len(tokens_list) >= limit:
-                break
+                if len(tokens_list) >= limit:
+                    break
 
     if not tokens_list:
         return {"error": "No tokens found from Birdeye API. Rate limit may have been hit. Try again in a minute.", "tokens": []}
@@ -338,13 +265,23 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
     raw_tokens = tokens_list[:limit]
     logger.info(f"Found {len(raw_tokens)} tokens to analyze")
 
+    addresses = [t.get("address", "") for t in raw_tokens if t.get("address")]
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
+        futures = {}
+        for addr in addresses:
+            cached = get_cached(addr)
+            if cached:
+                continue
+            pri_fut = pool.submit(get_birdeye_data, '/defi/price', {"address": addr, "include_liquidity": "true"})
+            ovr_fut = pool.submit(get_birdeye_data, '/defi/token_overview', {"address": addr})
+            futures[addr] = (pri_fut, ovr_fut)
+
     results = []
-    for i, token in enumerate(raw_tokens):
+    for token in raw_tokens:
         address = token.get("address", "")
         if not address:
             continue
-
-        logger.info(f"Scanning {i+1}/{len(raw_tokens)}: {token.get('symbol', '???')}")
 
         cached = get_cached(address)
         if cached:
@@ -352,42 +289,45 @@ def scan_new_tokens(limit: int = 15) -> Dict[str, Any]:
             results.append(cached)
             continue
 
-        security_resp = get_birdeye_data('/defi/token_security', {"address": address})
-        price_resp = get_birdeye_data('/defi/price', {"address": address, "include_liquidity": "true"})
-        overview_resp = get_birdeye_data('/defi/token_overview', {"address": address})
+        try:
+            if address in futures:
+                pri_resp, ovr_resp = futures[address]
+                pri = pri_resp.result().get("data", {}) if pri_resp.result() else {}
+                ovr = ovr_resp.result().get("data", {}) if ovr_resp.result() else {}
+            else:
+                pri = {}
+                ovr = {}
 
-    try:
-        sec = security_resp.get("data", {}) if security_resp else {}
-        pri = price_resp.get("data", {}) if price_resp else {}
-        ovr = overview_resp.get("data", {}) if overview_resp else {}
+            token_data = {
+                "address": address,
+                "name": token.get("name", "") or ovr.get("name", "Unknown"),
+                "symbol": token.get("symbol", "") or ovr.get("symbol", "???"),
+                "logoURI": token.get("logoURI", "") or ovr.get("logoURI", ""),
+            }
 
-        if sec or pri:
-            result = analyze_token(token, sec, pri, ovr)
-            set_cached(address, result)
-            result["from_cache"] = False
-            results.append(result)
-            logger.info(f"Score for {token.get('symbol')}: {result['score']} ({result['verdict']}) - AI: {result.get('ai_insight', 'MISSING')[:50]}")
-        else:
-            empty = _empty_token_result(token, address)
-            results.append(empty)
-            logger.info(f"Empty result for {token.get('symbol')} - no security/price data")
-    except Exception as e:
-        logger.error(f"Error processing {address}: {e}")
-        results.append(_error_token_result(token, address, e))
+            if pri or ovr:
+                result = analyze_token(token_data, {}, pri, ovr)
+                set_cached(address, result)
+                result["from_cache"] = False
+                results.append(result)
+                logger.info(f"Score for {token_data.get('symbol')}: {result['score']} ({result['verdict']})")
+            else:
+                results.append(_empty_token_result(token_data, address))
+        except Exception as e:
+            logger.error(f"Error processing {address}: {e}")
+            results.append(_error_token_result(token, address, e))
 
     scan_end = get_api_counter()
     calls_this_scan = scan_end - scan_start
 
-    comp_results = []
     for result in results:
         comp = generate_comparative(result, results)
         result["comparative"] = comp
-        comp_results.append(result)
 
     logger.info(f"=== Scan complete. Total API calls: {api_call_counter}, this scan: {calls_this_scan} ===")
 
     return {
-        "tokens": comp_results,
+        "tokens": results,
         "total_api_calls": api_call_counter,
         "calls_this_scan": calls_this_scan,
         "tokens_scanned": len(results),
@@ -424,7 +364,7 @@ def _empty_token_result(token, address):
         "is_new": True,
         "warnings": [{"level": "warning", "text": "No data available"}],
         "recommendation": {"label": "AVOID", "text": "Insufficient data"},
-        "ai_insight": "",
+        "ai_insight": "No data available for AI analysis.",
         "ai_source": "unavailable",
         "ai_available": False,
         "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),
@@ -462,7 +402,7 @@ def _error_token_result(token, address, error):
         "is_new": True,
         "warnings": [{"level": "critical", "text": f"Analysis error: {str(error)}"}],
         "recommendation": {"label": "AVOID", "text": "Analysis failed"},
-        "ai_insight": "",
+        "ai_insight": "Analysis failed — data retrieval error.",
         "ai_source": "unavailable",
         "ai_available": False,
         "simulation": simulate_investment({"price": 0, "liquidity": 0, "score": 0}),

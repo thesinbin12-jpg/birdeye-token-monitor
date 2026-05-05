@@ -51,7 +51,7 @@ def test_connection():
 @app.route('/api/scan-new-tokens', methods=['POST', 'GET'])
 def scan_new_tokens():
     try:
-        result = analyzer.scan_new_tokens(limit=15)
+        result = analyzer.scan_new_tokens(limit=5)
         return jsonify(result)
     except Exception as e:
         logger.error(f"Scan endpoint crashed: {e}")
