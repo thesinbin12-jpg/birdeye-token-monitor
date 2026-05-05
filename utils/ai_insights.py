@@ -53,13 +53,13 @@ def generate_ai_summary(token_data, score_data=None):
     price_chg = token_data.get("price_change_24h", 0)
 
     prompt = (
-        f"Analyze Solana token '{name}' ({symbol}) in 1-2 sentences. "
+        f"Analyze Solana token '{name}' ({symbol}) in 1 sentence max. "
         f"Score: {score}/100 ({verdict}). "
         f"Liquidity: ${liq:,.0f}. "
         f"Mint revoked: {mint_rev}. Freeze revoked: {freeze_rev}. "
         f"Top 10 holders: {top10:.1f}%. "
         f"24h price change: {price_chg:+.1f}%. "
-        f"Be direct about risk level. No financial advice."
+        f"Start with the main risk. End with recommendation. NO emojis."
     )
 
     last_err = None
@@ -77,6 +77,7 @@ def generate_ai_summary(token_data, score_data=None):
 
             insight = response.choices[0].message.content.strip()
             insight = strip_think_tags(insight)
+            insight = re.sub(r'\*+', '', insight)
             if not insight or len(insight) < 10:
                 logger.warning(f"Model {model} returned empty/short insight after stripping think tags, trying next")
                 continue
